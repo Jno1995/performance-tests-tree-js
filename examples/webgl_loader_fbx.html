@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - FBX loader</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	</head>
+
+	<body>
+        <div class="ui">
+            <label name="modelsLoadedNum" style="margin-left: 35%;">当前已加载角色模型数：0</label>
+            <label name="tips">【initScene】</label>
+            <input name="editBox" type="text" value="0" style="margin-left: 2%;">
+            <button name="switchShadowBtn" type="button" style="margin-left: 2%; width: 100px; height: 20px;">switchShadow</button>
+            <a href="./webgl_loader_fbx.html" style="margin-left: 2%;" target="_blank" rel="noopener">loadFbx</a>
+            <a href="./webgl_loader_gltf.html" target="_blank" rel="noopener">loadGltf</a>
+        </div>
+		<script type="module">
+			import * as THREE from '../build/three.module.js';
+
+			import Stats from './jsm/libs/stats.module.js';
+            import { TWEEN } from './jsm/libs/tween.module.min.js';
+			import { OrbitControls } from './jsm/controls/OrbitControls.js';
+			import { FBXLoader } from './jsm/loaders/FBXLoader.js';
+
+			var container, stats, controls;
+			var camera, scene, renderer, light;
+
+			var clock = new THREE.Clock();
+            var canLoad = true;
+			var mixer = [];
+            var FbxLoaderManager = {};
+            FbxLoaderManager.ModelsResUrl = [
+            "models/fbx/altman/altman01.FBX",
+            "models/fbx/clown/clown01.FBX",
+            "models/fbx/cocosWalk/cocosWalk.FBX",
+            "models/fbx/kulou/kulou.FBX",
+            "models/fbx/shixiang/shitouWalk.FBX",
+            "models/fbx/soldier/soldier01.FBX"];
+            FbxLoaderManager.currentLevel = 0;
+            FbxLoaderManager.loadCount = 1;
+
+			initScene();
+			animate();
+
+			function initScene() {
+				container = document.createElement('div');
+                document.body.appendChild( container );
+
+                scene = new THREE.Scene();
+                FbxLoaderManager.threeScene = scene;
+
+                var editbox = document.getElementsByName("editBox")[0];
+                FbxLoaderManager.editbox = editbox;
+                editbox.onblur = updatePlayerNumber.bind(editbox);
+
+                var switchShadowBtn = document.getElementsByName("switchShadowBtn")[0];
+                switchShadowBtn.onclick = onSwitchShadowBtnClick;
+
+                camera = new THREE.PerspectiveCamera( 38, window.innerWidth / window.innerHeight, 1, 1800 );
+				FbxLoaderManager.mainCamera = camera;
+                camera.position.set( 20, 150, 200);
+                camera.rotateX(-Math.PI / 5.5);
+
+                var Alight = new THREE.AmbientLight( 0xffffff, 1);
+				Alight.position.set( 0, 100, 0 );
+				scene.add( Alight );
+
+                var light = new THREE.PointLight( 0xffffff, 2, 1400);
+                FbxLoaderManager.mainLight = light;
+				light.position.set( 0, 150, 0 );
+				light.castShadow = true;
+                light.rotateX(-Math.PI / 5.5);
+				scene.add( light );
+
+                var heros = new THREE.Group();
+                FbxLoaderManager.heros = heros;
+                heros.name = "heros";
+                scene.add(heros);
+
+                loadFbxModel("models/fbx/skybox/skyBox1.FBX", 0.1, false, false, false, false, function (skybox) {
+                    var _skyboxClone = skybox.clone();
+                    _skyboxClone.position.set(0, -100, 0);
+                    _skyboxClone.rotateX(Math.PI);
+                    scene.add(_skyboxClone);
+                    scene.add(skybox);
+                });
+                loadFbxModel('models/fbx/map/newMap02.FBX', 0.1, false, true, false, false, function (map) {
+                    scene.add(map);
+                });
+                
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.shadowMap.enabled = true;
+                container.appendChild( renderer.domElement );
+
+				stats = new Stats();
+				container.appendChild( stats.dom );
+			}
+
+			function animate(time) {
+				requestAnimationFrame( animate );
+				var delta = clock.getDelta();
+				if ( mixer.length > 0 ) {
+                    for (var i = 0; i < mixer.length; i++) {
+                        mixer[i].update(delta);
+                    }
+                }
+				renderer.render( scene, camera );
+                stats.update();
+                TWEEN.update(time);
+			}
+
+            function updatePlayerNumber(element) {
+                var _inputValue = Number.parseInt(Number(this.value));
+                var modelsLoadedNum = document.getElementsByName("modelsLoadedNum")[0];
+                var _newCurrentLevel = Math.floor(_inputValue / 100);
+                moveUpCamera(_newCurrentLevel);
+                var _k = _inputValue - FbxLoaderManager.heros.children.length;
+                var add = function () {
+                    canLoad = false;
+                    var index = Math.floor(Math.random() * FbxLoaderManager.ModelsResUrl.length);
+                    var modelResUrl = FbxLoaderManager.ModelsResUrl[index];
+                    var scale = 0.2;
+                    switch (index) {
+                        case 2:
+                            scale = 4;
+                            break;
+                        case 4:
+                            scale = 0.6;
+                            break;
+                    }
+                    loadFbxModel(modelResUrl, scale, true, true, true, true, function(hero){
+                        canLoad = true;
+                        _k--;
+                        FbxLoaderManager.heros.add(hero);
+                        modelsLoadedNum.textContent = "当前已加载角色模型数：" + FbxLoaderManager.heros.children.length;
+                        moveTo(hero);
+                    })
+                };
+                var reduce = function () {
+                    FbxLoaderManager.heros.children.pop().remove();
+                    modelsLoadedNum.textContent = "当前已加载角色模型数：" + FbxLoaderManager.heros.children.length;
+                };
+                setInterval(()=>{
+                    if (_k > 0) {
+                        if (canLoad) add();
+                    }
+                    
+                })
+                if (_k < 0) {
+                    for (var i = 0; i < Math.abs(_k); i++) {
+                        reduce();
+                    }
+                }
+                FbxLoaderManager.currentLevel = _newCurrentLevel;
+            }
+            function moveUpCamera (currentLevel) {
+                var pos = camera.position;
+                var _tween = new TWEEN.Tween(pos);
+                var newZ = camera.position.z + 40 * (currentLevel - FbxLoaderManager.currentLevel);
+                var newY = camera.position.y + 10 * (currentLevel - FbxLoaderManager.currentLevel);
+                _tween.to({y: newY, z: newZ}, 1000)
+                _tween.onUpdate(function (object) {
+                    pos = object;
+                })
+                _tween.start();
+            }
+
+            function moveTo (hero) {
+                var _x = (-80 - 30 * FbxLoaderManager.currentLevel) + Math.random() * (160 + 60 * FbxLoaderManager.currentLevel);
+                var _y = 1.5;
+                var _z = -200 + Math.random() * (260 + 50 * FbxLoaderManager.currentLevel);
+                var nextPoint = new THREE.Vector3(_x, _y, _z);
+                var offset = nextPoint.clone().sub(hero.position);
+                var a = offset.clone().normalize().negate();
+                var angle = hero.position.clone().normalize().angleTo(nextPoint.clone().normalize());
+                hero.rotateY(-angle);
+                var costTime = (offset.length()) * 50;
+                var _localPos = hero.position;
+                var _tween = new TWEEN.Tween(_localPos);
+                _tween.to({x:_x, z: _z}, costTime)
+                _tween.onUpdate(function (object) {
+                    _localPos = object;
+                })
+                _tween.onComplete(function (object) {
+                    moveTo(hero);
+                })
+                _tween.start();
+            }
+
+            function onSwitchShadowBtnClick (e) {
+                FbxLoaderManager.mainLight.castShadow = !FbxLoaderManager.mainLight.castShadow;
+            }
+
+            function loadFbxModel (url, scale, randomPos, shadow, animation, closelight, cb) {
+                var tips = document.getElementsByName("tips")[0];
+                tips.textContent = "modelLoading..."
+                var fbxLoader = new FBXLoader();
+                fbxLoader.load(url, function (model){
+                    tips.textContent = "modelLoadFinish!"
+                    model.scale.multiplyScalar(scale);
+                    if (randomPos) {
+                        var _x = (-80 - 3 * FbxLoaderManager.currentLevel) + Math.random() * (160 + 6 * FbxLoaderManager.currentLevel);
+                        var _y = 1.5;
+                        var _z = -200 + Math.random() * (260 + 5 * FbxLoaderManager.currentLevel);
+                        model.position.set(_x, _y, _z);
+                    }
+                    if (shadow) {
+                        model.castShadow = true;
+                        model.traverse( function(child) {
+                            if (child.isMesh) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+                        });
+                    }
+                    if (animation) {
+                        var _mixer = new THREE.AnimationMixer(model);
+                        mixer.push(_mixer);
+                        var action = _mixer.clipAction(model.animations[0]);
+                        action.play();
+                    }
+                    if (closelight) {
+                        model.children[model.children.length - 1].visible = false;
+                    }
+                    if (cb instanceof Function) cb(model);
+                })
+            }
+        </script>
+	</body>
+</html>

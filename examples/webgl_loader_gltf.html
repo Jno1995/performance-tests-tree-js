@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>three.js webgl - FBX loader</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+</head>
+
+<body>
+    <div class="ui">
+        <label name="modelsLoadedNum" style="margin-left: 35%;">当前已加载角色模型数：0</label>
+        <label name="tips">【initScene】</label>
+        <label><input name="checkBox" type="radio" value="" checked=true/>9.8k </label>
+        <label><input name="checkBox" type="radio" value="" />11k </label>
+        <label><input name="checkBox" type="radio" value="" />25.2k </label>
+        <label><input name="editBox" type="text" value="0" style="margin-left: 5%;"></label>
+        <a href="./webgl_loader_fbx.html" target="_blank" rel="noopener">loadFbx</a>
+        <a href="./webgl_loader_gltf.html" target="_blank" rel="noopener">loadGltf</a>
+    </div>
+    <script type="module">
+
+        import * as THREE from '../build/three.module.js';
+
+        import Stats from './jsm/libs/stats.module.js';
+        import { TWEEN } from './jsm/libs/tween.module.min.js';
+        import { OrbitControls } from './jsm/controls/OrbitControls.js';
+        import { FBXLoader } from './jsm/loaders/FBXLoader.js';
+        import { GLTFLoader } from './jsm/loaders/GLTFLoader.js';
+        import { RGBELoader } from './jsm/loaders/RGBELoader.js';
+        import { RoughnessMipmapper } from './jsm/utils/RoughnessMipmapper.js';
+
+        var container, stats, controls;
+        var camera, scene, renderer, light;
+
+        var clock = new THREE.Clock();
+        var canLoad = true;
+        var mixer;
+        var GltfLoaderManager = {};
+        GltfLoaderManager.heroModels = [];
+        GltfLoaderManager.ModelsResUrl = [
+            "models/gltf/0/",
+            "models/gltf/1/",
+            "models/gltf/2/"];
+        GltfLoaderManager.currentLevel = 0;
+        GltfLoaderManager.modelAssetsIndex = 0;
+
+        initScene();
+        mainLoop();
+
+        function initScene() {
+            container = document.createElement('div');
+            document.body.appendChild(container);
+
+            scene = new THREE.Scene();
+            GltfLoaderManager.threeScene = scene;
+
+            var editbox = document.getElementsByName("editBox")[0];
+            GltfLoaderManager.editbox = editbox;
+            editbox.onblur = updatePlayerNumber.bind(editbox);
+
+            var checkBoxs = document.getElementsByName("checkBox");
+            for (var i = 0; i < checkBoxs.length; i++) {
+                checkBoxs[i].tabIndex = i;
+                checkBoxs[i].onclick = checkBoxClicked;
+            }
+
+            camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 1, 1800);
+            GltfLoaderManager.mainCamera = camera;
+            camera.position.set(20, 130, 180);
+            camera.rotateX(-Math.PI / 5.5);
+
+            var Alight = new THREE.AmbientLight(0xffffff, 1);
+            Alight.position.set(0, 100, 0);
+            scene.add(Alight);
+
+            var light = new THREE.PointLight(0xffffff, 2, 1400);
+            GltfLoaderManager.mainLight = light;
+            light.position.set(0, 150, 0);
+            light.rotateX(-Math.PI / 5.5);
+            scene.add(light);
+
+            var heros = new THREE.Group();
+            GltfLoaderManager.heros = heros;
+            heros.name = "heros";
+            scene.add(heros);
+
+            loadFbxModel("models/fbx/skybox/skyBox1.FBX", 0.1, function (skybox) {
+                var _skyboxClone = skybox.clone();
+                _skyboxClone.position.set(0, -100, 0);
+                _skyboxClone.rotateX(Math.PI);
+                scene.add(_skyboxClone);
+                scene.add(skybox);
+            });
+            var num = Number.parseInt(Number(editbox.value));
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+
+            container.appendChild(renderer.domElement);
+
+            var pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+            // stats
+            stats = new Stats();
+            container.appendChild(stats.dom);
+        }
+
+        function mainLoop() {
+            requestAnimationFrame(mainLoop);
+            renderer.render(scene, camera);
+            stats.update();
+            TWEEN.update();
+        }
+
+        function updatePlayerNumber(e) {
+            var _inputValue = Number.parseInt(Number(this.value));
+            var modelsLoadedNum = document.getElementsByName("modelsLoadedNum")[0];
+            var _newCurrentLevel = Math.floor(_inputValue / 100);
+            moveUpCamera(_newCurrentLevel);
+            GltfLoaderManager.currentLevel = _newCurrentLevel;
+            var _k = _inputValue - GltfLoaderManager.heros.children.length;
+            var index = GltfLoaderManager.modelAssetsIndex;
+            loadGltfModel(index, function(heroModel){
+                var add = function () {
+                    var scale = 0.1;
+                    switch (index) {
+                        case 0:
+                            scale = 5;
+                            break;
+                        case 1:
+                        case 2:
+                            scale = 0.01
+                            break;
+                    }
+                    var hero = heroModel.clone();
+                    hero.scale.multiplyScalar(scale);
+                    var _x = (-80 - 10 * GltfLoaderManager.currentLevel) + Math.random() * (160 + 25 * GltfLoaderManager.currentLevel);
+                    var _y = 0;
+                    var _z = -200 + Math.random() * (260 + 20 * GltfLoaderManager.currentLevel);
+                    hero.position.set(_x, _y, _z);
+                    GltfLoaderManager.heros.add(hero);
+                    canLoad = true;
+                    _k--;
+                };
+                var reduce = function () {
+                    GltfLoaderManager.heros.children.pop().remove();
+                    modelsLoadedNum.textContent = "当前已加载角色模型数：" + GltfLoaderManager.heros.children.length;
+                };
+                setInterval(()=>{
+                    if (_k > 0) if (canLoad) add();
+                    modelsLoadedNum.textContent = "当前已加载角色模型数：" + GltfLoaderManager.heros.children.length;
+                })
+                if (_k < 0) {
+                    for (var i = 0; i < Math.abs(_k); i++) {
+                        reduce();
+                    }
+                }
+            });
+        }
+        function moveUpCamera(currentLevel) {
+            var pos = camera.position;
+            var _tween = new TWEEN.Tween(pos);
+            var newZ = camera.position.z + 25 * (currentLevel - GltfLoaderManager.currentLevel);
+            var newY = camera.position.y + 5 * (currentLevel - GltfLoaderManager.currentLevel);
+            _tween.to({y: newY, z: newZ}, 1000)
+            _tween.onUpdate(function (object) {
+                pos = object;
+            })
+            _tween.start();
+        }
+
+        function loadFbxModel(url, scale, cb) {
+            var fbxLoader = new FBXLoader();
+            fbxLoader.load(url, function (model) {
+                model.modelResUrl = url;
+                model.scale.multiplyScalar(scale);
+                if (cb instanceof Function) cb(model);
+            });
+        }
+
+        function loadGltfModel(index, cb) {
+            var tips = document.getElementsByName("tips")[0];
+            var gltfLoader = new GLTFLoader().setPath(GltfLoaderManager.ModelsResUrl[index]);
+            var heroModels = GltfLoaderManager.heroModels;
+            var heros = GltfLoaderManager.heros;
+            if (!heroModels[index]) {
+                tips.textContent = "modelLoading..."
+                gltfLoader.load('scene.gltf', function (gltf) {
+                    tips.textContent = "modelLoadFinish!"
+                    heroModels[index] = gltf.scene;
+                    if (cb instanceof Function) cb(gltf.scene);
+                })
+            } else {
+                var hero = heroModels[index].clone();
+                if (cb instanceof Function) cb(hero);
+            }
+        }
+
+        function checkBoxClicked(e) {
+            var count = GltfLoaderManager.heros.children.length;
+            for (var i = 0; i < count; i++) {
+                GltfLoaderManager.heros.children.pop().remove();
+            }
+            var element = e.target;
+            GltfLoaderManager.modelAssetsIndex = element.tabIndex;
+            updatePlayerNumber.bind(GltfLoaderManager.editbox)();
+        }
+    </script>
+</body>
+</html>
